@@ -1,0 +1,6 @@
+[package]
+name = "wire"
+version = "0.1.0"
+authors = ["manpat <pat@patsown.com>"]
+
+[dependencies]
