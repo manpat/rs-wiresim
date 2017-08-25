@@ -2,6 +2,8 @@ use math::*;
 use wire::*;
 use gl;
 
+use std::ops::Fn;
+
 const WIRE_TICK_DURATION: f32 = 1.0/10.0;
 
 const PLAYER_HEAD_HEIGHT: f32 = 2.0;
@@ -11,7 +13,12 @@ const PLAYER_WALK_SPEED: f32 = 5.0;
 
 #[derive(Copy, Clone)]
 pub enum Key {
-	Forward, Left, Right, Back,
+	Forward, Left, Right, Back
+}
+
+pub struct Item {
+	spawn: Box<Fn(&mut WireContext) -> u32>,
+	color: Vec3,
 }
 
 pub struct GameContext {
@@ -22,32 +29,53 @@ pub struct GameContext {
 	player_yaw: f32,
 	player_pitch: f32,
 
+	hovered_node: Option<u32>,
+	connecting_node: Option<(u32, u32)>,
+
 	key_states: [bool; 4],
+
+	node_views: Vec<NodeView>,
+
+	items: Vec<Item>,
+	current_item: i32,
+}
+
+struct NodeView {
+	node_id: u32,
+	position: Vec3,
+	color: Vec3,
 }
 
 impl GameContext {
 	pub fn new() -> Self {
-		let mut wire_context = WireContext::new();
+		let items = vec![
+			Item{
+				spawn: box |ctx: &mut WireContext| ctx.add_node( ConstantNode{value: 5} ),
+				color: Vec3::new(0.2, 0.2, 0.2),
+			},
 
-		let const_1		= wire_context.add_node( ConstantNode{value: 1} );
-		let buffer		= wire_context.add_node( BufferNode::new() );
-		let self_adder	= wire_context.add_node( AddNode::new() );
-		let output		= wire_context.add_node( OutputNode{name: "Fib".to_string()} );
-
-		wire_context.add_connection((const_1, 0), (self_adder, 0));
-		wire_context.add_connection((self_adder, 0), (output, 0));
-		wire_context.add_connection((self_adder, 0), (buffer, 0));
-		wire_context.add_connection((buffer, 0), (self_adder, 1));
+			Item{
+				spawn: box |ctx: &mut WireContext| ctx.add_node( OutputNode{name: "output".to_string()} ),
+				color: Vec3::new(1.0, 0.0, 0.0),
+			},
+		];
 
 		GameContext {
-			wire_context,
+			wire_context: WireContext::new(),
 			wire_update_timer: 0.0,
 
 			player_position: Vec2::splat(0.0),
 			player_yaw: 0.0,
 			player_pitch: 0.0,
 
+			hovered_node: None,
+			connecting_node: None,
+
 			key_states: [false; 4],
+
+			node_views: Vec::new(),
+			items,
+			current_item: 0,
 		}
 	}
 
@@ -64,6 +92,62 @@ impl GameContext {
 
 	pub fn set_key_state(&mut self, key: Key, down: bool) {
 		*self.get_key_state(key) = down;
+	}
+
+	pub fn prev_item(&mut self) {
+		self.current_item -= 1;
+		if self.current_item < 0 {
+			self.current_item += self.items.len() as i32;
+		}
+	}
+
+	pub fn next_item(&mut self) {
+		self.current_item += 1;
+		if self.current_item >= self.items.len() as i32 {
+			self.current_item = 0;
+		}
+	}
+
+	pub fn on_click(&mut self) {
+		let item = &self.items[self.current_item as usize];
+		let node_id = (item.spawn)(&mut self.wire_context);
+
+		let eye_fwd = self.get_eye_fwd();
+		let position = self.get_head_pos() + eye_fwd * 1.5;
+
+		self.node_views.push(NodeView {
+			node_id, position,
+			color: item.color
+		});
+	}
+
+	pub fn on_rclick(&mut self) {
+		if let Some(src) = self.connecting_node {
+			if self.hovered_node.is_none() {
+				self.connecting_node = None;
+				return;
+			}
+
+			let dst = self.hovered_node.unwrap();
+			self.wire_context.add_connection(src, (dst, 0));
+
+			self.connecting_node = None;
+
+		} else {
+			self.connecting_node = self.hovered_node.map(|x| (x, 0));
+		}
+	}
+
+	pub fn get_eye_fwd(&self) -> Vec3 {
+		let Vec2{x, y: z} = Vec2::from_angle(-self.player_yaw - PI/2.0);
+		let y = self.player_pitch.sin();
+
+		Vec3::new(x, y, z).normalize()
+	}
+
+	pub fn get_head_pos(&self) -> Vec3 {
+		let Vec2{x, y: z} = self.player_position;
+		Vec3::new(x, PLAYER_HEAD_HEIGHT, z)
 	}
 
 	pub fn process_mouse_delta(&mut self, mouse_delta: Vec2) {
@@ -94,14 +178,85 @@ impl GameContext {
 		if vel_len > 0.1 {
 			self.player_position = self.player_position + vel / vel_len * dt * PLAYER_WALK_SPEED;
 		}
+
+		self.hovered_node = None;
+		let dir = self.get_eye_fwd();
+		let mut pos = self.get_head_pos();
+
+		let incr = 0.4;
+		let radius = 0.3;
+
+		'cast: for _ in 0..10 {
+			for v in self.node_views.iter() {
+				if (v.position-pos).length() < radius {
+					self.hovered_node = Some(v.node_id);
+					break 'cast;
+				}
+			}
+
+			pos = pos + dir * incr;
+		}
 	}
 
 	pub unsafe fn draw(&mut self) {
 		gl::ClearColor(0.1, 0.1, 0.1, 1.0);
-		gl::Clear(gl::COLOR_BUFFER_BIT);
+		gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+
+		gl::LineWidth(3.0);
 
 		self.setup_camera();
 		GameContext::draw_floor(5.0);
+
+		let hovered_node_id = self.hovered_node.unwrap_or(!0);
+
+		for v in self.node_views.iter() {
+			let boost = if v.node_id == hovered_node_id
+				{ Vec3::splat(0.1) } else { Vec3::zero() };
+
+			let col = v.color + boost;
+
+			gl::Color3f(col.x, col.y, col.z);
+
+			gl::PushMatrix();
+			let Vec3{x,y,z} = v.position;
+			gl::Translatef(x, y, z);
+			GameContext::draw_cube(0.3);
+			gl::PopMatrix();
+		}
+
+		gl::Disable(gl::DEPTH_TEST);
+
+		if let Some((source_id, _port)) = self.connecting_node {
+			if let Some(node) = self.node_views.iter().find(|&n| n.node_id == source_id) {
+				let end_pos = self.get_head_pos() + self.get_eye_fwd() * 1.5;
+				let pos = node.position;
+
+				gl::Begin(gl::LINES);
+				gl::Color3f(1.0, 0.0, 1.0);
+				gl::Vertex3fv(&pos.x);
+				gl::Vertex3fv(&end_pos.x);
+				gl::End();
+			} else {
+				self.connecting_node = None;
+			}
+		}
+
+		for c in self.wire_context.connections.iter() {
+			let src = self.node_views.iter().find(|&n| n.node_id == c.input_node);
+			let dst = self.node_views.iter().find(|&n| n.node_id == c.output_node);
+
+			if src.is_none() || dst.is_none() { continue }
+
+			let (src, dst) = (src.unwrap(), dst.unwrap());
+
+			gl::Begin(gl::LINES);
+			gl::Color3f(0.5, 0.8, 0.8);
+			gl::Vertex3fv(&src.position.x);
+			gl::Vertex3fv(&dst.position.x);
+			gl::End();
+		}
+
+		gl::Enable(gl::DEPTH_TEST);
 	}
 
 	unsafe fn setup_camera(&self) {
@@ -125,10 +280,7 @@ impl GameContext {
 		gl::MatrixMode(gl::MODELVIEW);
 		gl::LoadIdentity();
 
-		let camera_pos = {
-			let Vec2{x, y: z} = self.player_position;
-			Vec3::new(x, PLAYER_HEAD_HEIGHT, z)
-		};
+		let camera_pos = self.get_head_pos();
 
 		gl::Rotatef(-self.player_pitch / PI * 180.0, 1.0, 0.0, 0.0);
 		gl::Rotatef(-self.player_yaw / PI * 180.0, 0.0, 1.0, 0.0);
@@ -142,6 +294,38 @@ impl GameContext {
 		gl::Vertex3f(-size, 0.0, size);
 		gl::Vertex3f( size, 0.0, size);
 		gl::Vertex3f( size, 0.0,-size);
+		gl::End();
+	}
+
+	unsafe fn draw_cube(size: f32) {
+		let sz = size/2.0;
+
+		let verts = [
+			Vec3::new(-sz,-sz,-sz), // 0
+			Vec3::new(-sz,-sz, sz), // 1
+			Vec3::new( sz,-sz, sz), // 2
+			Vec3::new( sz,-sz,-sz), // 3
+			Vec3::new(-sz, sz,-sz), // 4
+			Vec3::new(-sz, sz, sz), // 5
+			Vec3::new( sz, sz, sz), // 6
+			Vec3::new( sz, sz,-sz), // 7
+		];
+
+		let idxs = [
+			0, 2, 1,  0, 3, 2, // bottom
+			4, 5, 6,  4, 6, 7, // top
+
+			0, 5, 4,  0, 1, 5, // left
+			2, 7, 6,  2, 3, 7, // right
+
+			1, 6, 5,  1, 2, 6, // front
+			0, 4, 7,  0, 7, 3, // back
+		];
+
+		gl::Begin(gl::TRIANGLES);
+		for &i in idxs.iter() {
+			gl::Vertex3fv(&verts[i].x);
+		}
 		gl::End();
 	}
 }

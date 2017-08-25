@@ -13,11 +13,11 @@ pub trait WireNode {
 
 #[derive(Copy, Clone, Debug)]
 pub struct WireConnection {
-	input_node: u32,
-	output_node: u32,
+	pub input_node: u32,
+	pub output_node: u32,
 
-	input_port: u32,
-	output_port: u32,
+	pub input_port: u32,
+	pub output_port: u32,
 
 	value: WireValue,
 	changed: bool,

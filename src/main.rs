@@ -38,6 +38,11 @@ fn main() {
 
 	gl::load_with(|name| video.gl_get_proc_address(name) as *const _);
 
+	unsafe {
+		gl::Enable(gl::CULL_FACE);
+		gl::Enable(gl::DEPTH_TEST);
+	}
+
 	let mut events = sdl_ctx.event_pump().unwrap();
 	let mut capture = true;
 
@@ -45,6 +50,7 @@ fn main() {
 		for event in events.poll_iter() {
 			use sdl2::event::Event;
 			use sdl2::keyboard::Keycode;
+			use sdl2::mouse::MouseButton;
 			use game::Key;
 
 			match event {
@@ -62,6 +68,17 @@ fn main() {
 						Keycode::A => Key::Left,
 						Keycode::S => Key::Back,
 						Keycode::D => Key::Right,
+
+						Keycode::Q => {
+							game_ctx.prev_item();
+							break;
+						},
+
+						Keycode::E => {
+							game_ctx.next_item();
+							break;
+						},
+
 						_ => break
 					};
 
@@ -78,6 +95,14 @@ fn main() {
 					};
 
 					game_ctx.set_key_state(key, false);
+				}
+
+				Event::MouseButtonDown{ mouse_btn, .. } => {
+					match mouse_btn {
+						MouseButton::Left => game_ctx.on_click(),
+						MouseButton::Right => game_ctx.on_rclick(),
+						_ => {}
+					}
 				}
 
 				_ => {}
