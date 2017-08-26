@@ -2,6 +2,7 @@
 #![feature(slice_patterns)]
 
 extern crate sdl2;
+extern crate lodepng;
 
 mod gl {
 	include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -9,14 +10,13 @@ mod gl {
 
 mod game;
 mod wire;
+mod text;
 mod math;
 mod easing;
 
 use math::*;
 
 fn main() {
-	let mut game_ctx = game::GameContext::new();
-
 	let sdl_ctx = sdl2::init().unwrap();
 	let video = sdl_ctx.video().unwrap();
 
@@ -38,9 +38,14 @@ fn main() {
 
 	gl::load_with(|name| video.gl_get_proc_address(name) as *const _);
 
+	let mut game_ctx = game::GameContext::new();
+
 	unsafe {
 		gl::Enable(gl::CULL_FACE);
 		gl::Enable(gl::DEPTH_TEST);
+		gl::Enable(gl::BLEND);
+
+		gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 	}
 
 	let mut events = sdl_ctx.event_pump().unwrap();

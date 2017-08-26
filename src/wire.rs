@@ -8,6 +8,8 @@ pub trait WireNode {
 	fn on_input_changed(&mut self, port: u32, value: WireValue) {}
 	fn get_output(&self, port: u32) -> WireValue { None }
 
+	fn get_label(&self) -> String { String::new() }
+
 	fn update(&mut self) {}
 }
 
@@ -50,6 +52,11 @@ impl WireContext {
 
 	pub fn remove_node(&mut self, node_id: u32) {
 		self.nodes.retain(|n| n.0 != node_id);
+	}
+
+	pub fn get_node(&self, node_id: u32) -> Option<&WireNode> {
+		self.nodes.binary_search_by_key(&node_id, |a| a.0).ok()
+			.map(|n| &*self.nodes[n].1)
 	}
 
 	pub fn add_connection(&mut self, from_node: (u32, u32), to_node: (u32, u32)) {
@@ -133,7 +140,7 @@ impl WireContext {
 }
 
 pub struct ConstantNode { pub value: i32 }
-pub struct OutputNode { pub name: String }
+pub struct OutputNode { pub name: String, value: WireValue }
 pub struct CounterNode { count: i32 }
 pub struct BufferNode { value: WireValue }
 
@@ -149,6 +156,19 @@ impl WireNode for ConstantNode {
 			None
 		}
 	}
+
+	fn get_label(&self) -> String {
+		"Constant".to_string()
+	}
+}
+
+impl OutputNode {
+	pub fn new(name: &str) -> Self {
+		OutputNode {
+			name: name.to_string(),
+			value: None
+		}
+	}
 }
 
 impl WireNode for OutputNode {
@@ -157,7 +177,12 @@ impl WireNode for OutputNode {
 	fn on_input_changed(&mut self, port: u32, value: WireValue) {
 		if port != 0 { return }
 
+		self.value = value;
 		println!("'{}': {:?}", self.name, value);
+	}
+
+	fn get_label(&self) -> String {
+		format!("{}: {:?}", self.name, self.value)
 	}
 }
 
@@ -177,6 +202,10 @@ impl WireNode for CounterNode {
 	fn get_output(&self, port: u32) -> WireValue {
 		if port != 0 { return None }
 		Some(self.count)
+	}
+
+	fn get_label(&self) -> String {
+		format!("{}", self.count)
 	}
 }
 
@@ -226,5 +255,9 @@ impl WireNode for AddNode {
 		} else {
 			None
 		}
+	}
+
+	fn get_label(&self) -> String {
+		format!("{} + {}", self.inputs[0], self.inputs[1])
 	}
 }

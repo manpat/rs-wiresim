@@ -2,12 +2,14 @@ use math::*;
 use wire::*;
 use gl;
 
+use text::TextRenderer;
+
 use std::ops::Fn;
 
 const WIRE_TICK_DURATION: f32 = 1.0/10.0;
 
 const PLAYER_HEAD_HEIGHT: f32 = 2.0;
-const PLAYER_YAW_RATE: f32 = PI * 5.0;
+const PLAYER_YAW_RATE: f32 = PI * 4.0;
 const PLAYER_PITCH_RATE: f32 = PLAYER_YAW_RATE;
 const PLAYER_WALK_SPEED: f32 = 5.0;
 
@@ -19,11 +21,14 @@ pub enum Key {
 pub struct Item {
 	spawn: Box<Fn(&mut WireContext) -> u32>,
 	color: Vec3,
+	name: &'static str,
 }
 
 pub struct GameContext {
 	wire_context: WireContext,
 	wire_update_timer: f32,
+
+	text_renderer: TextRenderer,
 
 	player_position: Vec2,
 	player_yaw: f32,
@@ -52,17 +57,33 @@ impl GameContext {
 			Item{
 				spawn: box |ctx: &mut WireContext| ctx.add_node( ConstantNode{value: 5} ),
 				color: Vec3::new(0.2, 0.2, 0.2),
+				name: "Constant",
 			},
 
 			Item{
-				spawn: box |ctx: &mut WireContext| ctx.add_node( OutputNode{name: "output".to_string()} ),
-				color: Vec3::new(1.0, 0.0, 0.0),
+				spawn: box |ctx: &mut WireContext| ctx.add_node( AddNode::new() ),
+				color: Vec3::new(0.2, 0.6, 0.2),
+				name: "Adder",
+			},
+
+			Item{
+				spawn: box |ctx: &mut WireContext| ctx.add_node( OutputNode::new("output") ),
+				color: Vec3::new(0.6, 0.2, 0.2),
+				name: "Output",
+			},
+
+			Item{
+				spawn: box |ctx: &mut WireContext| ctx.add_node( CounterNode::new() ),
+				color: Vec3::new(0.6, 0.5, 0.2),
+				name: "Counter",
 			},
 		];
 
 		GameContext {
 			wire_context: WireContext::new(),
 			wire_update_timer: 0.0,
+
+			text_renderer: TextRenderer::new(),
 
 			player_position: Vec2::splat(0.0),
 			player_yaw: 0.0,
@@ -128,13 +149,24 @@ impl GameContext {
 				return;
 			}
 
-			let dst = self.hovered_node.unwrap();
-			self.wire_context.add_connection(src, (dst, 0));
-
 			self.connecting_node = None;
 
-		} else {
-			self.connecting_node = self.hovered_node.map(|x| (x, 0));
+			let dst = self.hovered_node.unwrap();
+			if let Some(node) = self.wire_context.get_node(dst) {
+				if node.get_num_inputs() == 0 { return }
+			}
+
+			self.wire_context.add_connection(src, (dst, 0));
+
+		} else if let Some(node_id) = self.hovered_node {
+			let node = self.wire_context.get_node(node_id);
+			if node.is_none() { return }
+
+			let node = node.unwrap();
+
+			if node.get_num_outputs() > 0 {
+				self.connecting_node = Some((node_id, 0));
+			}
 		}
 	}
 
@@ -203,6 +235,7 @@ impl GameContext {
 		gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
 		gl::LineWidth(3.0);
+		gl::PointSize(3.0);
 
 		self.setup_camera();
 		GameContext::draw_floor(5.0);
@@ -222,6 +255,12 @@ impl GameContext {
 			gl::Translatef(x, y, z);
 			GameContext::draw_cube(0.3);
 			gl::PopMatrix();
+			
+			if let Some(node) = self.wire_context.get_node(v.node_id) {
+				gl::Color3f(0.8, 0.8, 0.8);
+				self.text_renderer.draw(&node.get_label(),
+					v.position + Vec3::new(-0.14, 0.0, 0.16));
+			}
 		}
 
 		gl::Disable(gl::DEPTH_TEST);
