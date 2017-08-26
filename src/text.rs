@@ -52,6 +52,10 @@ impl TextRenderer {
 	}
 
 	pub unsafe fn draw(&self, text: &str, pos: Vec3) {
+		self.draw_scale(text, pos, 1.0);
+	}
+
+	pub unsafe fn draw_scale(&self, text: &str, pos: Vec3, scale: f32) {
 		let bs = text.as_bytes();
 
 		let glyph_width = 12;
@@ -77,8 +81,8 @@ impl TextRenderer {
 
 			let bl = Vec2::new(x as f32, y as f32) / tex_size;
 
-			let sz = 0.1;
-			let adv = i as f32 * glyph_stride as f32 / tex_size.x;
+			let sz = 0.1 * scale;
+			let adv = i as f32 * glyph_stride as f32 / tex_size.x * scale;
 
 			let verts = [
 				pos + Vec3::new(adv + 0.0, 0.0, i as f32 * 0.001),

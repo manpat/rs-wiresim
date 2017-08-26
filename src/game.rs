@@ -35,6 +35,7 @@ pub struct GameContext {
 	player_pitch: f32,
 
 	hovered_node: Option<u32>,
+	hovered_port: u32,
 	connecting_node: Option<(u32, u32)>,
 
 	key_states: [bool; 4],
@@ -90,6 +91,7 @@ impl GameContext {
 			player_pitch: 0.0,
 
 			hovered_node: None,
+			hovered_port: 0,
 			connecting_node: None,
 
 			key_states: [false; 4],
@@ -129,6 +131,51 @@ impl GameContext {
 		}
 	}
 
+	fn get_hovered_node(&self) -> Option<&WireNode> {
+		if self.hovered_node.is_none() { return None }
+		let hovered_node_id = self.hovered_node.unwrap();
+
+		self.wire_context.get_node(hovered_node_id)
+	}
+
+	pub fn prev_port(&mut self) {
+		let connecting = self.connecting_node.is_some();
+
+		if let Some(node) = self.get_hovered_node() {
+			let port_count = if connecting {
+				node.get_num_inputs()
+			} else {
+				node.get_num_outputs()
+			};
+
+			if port_count == 0 { return }
+		}
+
+		if self.hovered_port > 0 {
+			self.hovered_port -= 1;
+		}
+	}
+
+	pub fn next_port(&mut self) {
+		let mut port_count = 0;
+		let connecting = self.connecting_node.is_some();
+
+		if let Some(node) = self.get_hovered_node() {
+			port_count = if connecting {
+				node.get_num_inputs()
+			} else {
+				node.get_num_outputs()
+			};
+		}
+
+		if port_count == 0 { return }
+
+		self.hovered_port += 1;
+		if self.hovered_port >= port_count {
+			self.hovered_port = port_count - 1;
+		}
+	}
+
 	pub fn on_click(&mut self) {
 		let item = &self.items[self.current_item as usize];
 		let node_id = (item.spawn)(&mut self.wire_context);
@@ -153,10 +200,10 @@ impl GameContext {
 
 			let dst = self.hovered_node.unwrap();
 			if let Some(node) = self.wire_context.get_node(dst) {
-				if node.get_num_inputs() == 0 { return }
+				if node.get_num_inputs() <= self.hovered_port { return }
 			}
 
-			self.wire_context.add_connection(src, (dst, 0));
+			self.wire_context.add_connection(src, (dst, self.hovered_port));
 
 		} else if let Some(node_id) = self.hovered_node {
 			let node = self.wire_context.get_node(node_id);
@@ -164,8 +211,8 @@ impl GameContext {
 
 			let node = node.unwrap();
 
-			if node.get_num_outputs() > 0 {
-				self.connecting_node = Some((node_id, 0));
+			if node.get_num_outputs() > self.hovered_port {
+				self.connecting_node = Some((node_id, self.hovered_port));
 			}
 		}
 	}
@@ -211,6 +258,7 @@ impl GameContext {
 			self.player_position = self.player_position + vel / vel_len * dt * PLAYER_WALK_SPEED;
 		}
 
+		let prev_hovered = self.hovered_node.is_some();
 		self.hovered_node = None;
 		let dir = self.get_eye_fwd();
 		let mut pos = self.get_head_pos();
@@ -228,6 +276,10 @@ impl GameContext {
 
 			pos = pos + dir * incr;
 		}
+
+		if !prev_hovered && self.hovered_node.is_some() {
+			self.hovered_port = 0;
+		}
 	}
 
 	pub unsafe fn draw(&mut self) {
@@ -243,9 +295,9 @@ impl GameContext {
 		let hovered_node_id = self.hovered_node.unwrap_or(!0);
 
 		for v in self.node_views.iter() {
-			let boost = if v.node_id == hovered_node_id
-				{ Vec3::splat(0.1) } else { Vec3::zero() };
+			let hovered = v.node_id == hovered_node_id;
 
+			let boost = if hovered { Vec3::splat(0.1) } else { Vec3::zero() };
 			let col = v.color + boost;
 
 			gl::Color3f(col.x, col.y, col.z);
@@ -296,6 +348,52 @@ impl GameContext {
 		}
 
 		gl::Enable(gl::DEPTH_TEST);
+
+		gl::MatrixMode(gl::PROJECTION);
+		gl::LoadIdentity();
+		gl::Ortho(
+			0.0, 12.0,
+			0.0, 12.0,
+			-1.0, 1.0);
+
+		gl::MatrixMode(gl::MODELVIEW);
+		gl::LoadIdentity();
+
+		gl::Color3f(1.0, 1.0, 1.0);
+
+		{
+			let item = &self.items[self.current_item as usize];
+			self.text_renderer.draw_scale(item.name, Vec3::new(0.1, 0.1, 0.0), 6.0);
+		}
+
+		let connecting = self.connecting_node.is_some();
+
+		if let Some(node) = self.get_hovered_node() {
+			let port_count = if connecting {
+				node.get_num_inputs()
+			} else {
+				node.get_num_outputs()
+			};
+
+			let center = 6.0;
+			let size = 0.4;
+			let start = center - port_count as f32 / 2.0 * size + 0.5;
+
+			gl::PointSize(10.0);
+			gl::Begin(gl::POINTS);
+
+			for i in 0..port_count {
+				if i == self.hovered_port {
+					gl::Color3f(1.0, 0.5, 0.5);
+				} else {
+					gl::Color3f(1.0, 1.0, 1.0);
+				}
+
+				gl::Vertex3f(7.0, start + size * i as f32, 0.0);
+			}
+
+			gl::End();
+		}
 	}
 
 	unsafe fn setup_camera(&self) {

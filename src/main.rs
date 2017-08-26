@@ -110,6 +110,14 @@ fn main() {
 					}
 				}
 
+				Event::MouseWheel{ y, .. } => {
+					if y > 0 {
+						game_ctx.next_port()
+					} else if y < 0 {
+						game_ctx.prev_port()
+					}
+				}
+
 				_ => {}
 			}
 		}
