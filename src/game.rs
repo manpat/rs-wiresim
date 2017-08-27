@@ -56,27 +56,45 @@ impl GameContext {
 	pub fn new() -> Self {
 		let items = vec![
 			Item{
-				spawn: box |ctx: &mut WireContext| ctx.add_node( ConstantNode{value: 5} ),
+				spawn: box |wire: &mut WireContext| wire.add_node( ConstantNode{value: 5} ),
 				color: Vec3::new(0.2, 0.2, 0.2),
 				name: "Constant",
 			},
 
 			Item{
-				spawn: box |ctx: &mut WireContext| ctx.add_node( AddNode::new() ),
+				spawn: box |wire: &mut WireContext| wire.add_node( AddNode::new() ),
 				color: Vec3::new(0.2, 0.6, 0.2),
 				name: "Adder",
 			},
 
 			Item{
-				spawn: box |ctx: &mut WireContext| ctx.add_node( OutputNode::new("output") ),
+				spawn: box |wire: &mut WireContext| wire.add_node( AndNode::new() ),
+				color: Vec3::new(0.4, 0.6, 0.2),
+				name: "And",
+			},
+
+			Item{
+				spawn: box |wire: &mut WireContext| wire.add_node( CounterNode::new() ),
+				color: Vec3::new(0.6, 0.5, 0.2),
+				name: "Counter",
+			},
+
+			Item{
+				spawn: box |wire: &mut WireContext| wire.add_node( OutputNode::new("output") ),
 				color: Vec3::new(0.6, 0.2, 0.2),
 				name: "Output",
 			},
 
 			Item{
-				spawn: box |ctx: &mut WireContext| ctx.add_node( CounterNode::new() ),
-				color: Vec3::new(0.6, 0.5, 0.2),
-				name: "Counter",
+				spawn: box |wire: &mut WireContext| wire.add_node( ButtonNode::new() ),
+				color: Vec3::new(0.2, 0.2, 0.6),
+				name: "Button",
+			},
+
+			Item{
+				spawn: box |wire: &mut WireContext| wire.add_node( ToggleNode::new() ),
+				color: Vec3::new(0.2, 0.5, 0.6),
+				name: "Toggle",
 			},
 		];
 
@@ -117,6 +135,26 @@ impl GameContext {
 		*self.get_key_state(key) = down;
 	}
 
+	fn get_hovered_node(&self) -> Option<&WireNode> {
+		if self.hovered_node.is_none() { return None }
+		let hovered_node_id = self.hovered_node.unwrap();
+
+		self.wire_context.get_node(hovered_node_id)
+	}
+
+	fn get_hovered_node_mut(&mut self) -> Option<&mut (WireNode + 'static)> {
+		if self.hovered_node.is_none() { return None }
+		let hovered_node_id = self.hovered_node.unwrap();
+
+		self.wire_context.get_node_mut(hovered_node_id)
+	}
+
+	pub fn on_frob(&mut self) {
+		if let Some(node) = self.get_hovered_node_mut() {
+			node.on_frob();
+		}
+	}
+
 	pub fn prev_item(&mut self) {
 		self.current_item -= 1;
 		if self.current_item < 0 {
@@ -129,13 +167,6 @@ impl GameContext {
 		if self.current_item >= self.items.len() as i32 {
 			self.current_item = 0;
 		}
-	}
-
-	fn get_hovered_node(&self) -> Option<&WireNode> {
-		if self.hovered_node.is_none() { return None }
-		let hovered_node_id = self.hovered_node.unwrap();
-
-		self.wire_context.get_node(hovered_node_id)
 	}
 
 	pub fn prev_port(&mut self) {
@@ -263,8 +294,8 @@ impl GameContext {
 		let dir = self.get_eye_fwd();
 		let mut pos = self.get_head_pos();
 
-		let incr = 0.4;
-		let radius = 0.3;
+		let incr = 0.19;
+		let radius = 0.2;
 
 		'cast: for _ in 0..10 {
 			for v in self.node_views.iter() {
@@ -293,6 +324,7 @@ impl GameContext {
 		GameContext::draw_floor(5.0);
 
 		let hovered_node_id = self.hovered_node.unwrap_or(!0);
+		let right = Vec3::from_y_angle(-self.player_yaw);
 
 		for v in self.node_views.iter() {
 			let hovered = v.node_id == hovered_node_id;
@@ -305,13 +337,14 @@ impl GameContext {
 			gl::PushMatrix();
 			let Vec3{x,y,z} = v.position;
 			gl::Translatef(x, y, z);
-			GameContext::draw_cube(0.3);
+			GameContext::draw_cube(0.2);
 			gl::PopMatrix();
 			
 			if let Some(node) = self.wire_context.get_node(v.node_id) {
 				gl::Color3f(0.8, 0.8, 0.8);
 				self.text_renderer.draw(&node.get_label(),
-					v.position + Vec3::new(-0.14, 0.0, 0.16));
+					v.position + Vec3::new(0.0, 0.11, 0.0),
+					right, true);
 			}
 		}
 
@@ -332,6 +365,8 @@ impl GameContext {
 			}
 		}
 
+		gl::Enable(gl::DEPTH_TEST);
+
 		for c in self.wire_context.connections.iter() {
 			let src = self.node_views.iter().find(|&n| n.node_id == c.input_node);
 			let dst = self.node_views.iter().find(|&n| n.node_id == c.output_node);
@@ -339,15 +374,16 @@ impl GameContext {
 			if src.is_none() || dst.is_none() { continue }
 
 			let (src, dst) = (src.unwrap(), dst.unwrap());
+			let up = Vec3::new(0.0, 0.05, 0.0);
+			let right = Vec3::new(-0.15, 0.0, 0.0);
 
 			gl::Begin(gl::LINES);
 			gl::Color3f(0.5, 0.8, 0.8);
-			gl::Vertex3fv(&src.position.x);
-			gl::Vertex3fv(&dst.position.x);
+			gl::Vertex3fv(&(src.position - right + up * (c.input_port as f32 - 2.0)).x);
+			gl::Vertex3fv(&(dst.position + right + up * (c.output_port as f32 - 2.0)).x);
 			gl::End();
 		}
 
-		gl::Enable(gl::DEPTH_TEST);
 
 		gl::MatrixMode(gl::PROJECTION);
 		gl::LoadIdentity();
@@ -363,7 +399,8 @@ impl GameContext {
 
 		{
 			let item = &self.items[self.current_item as usize];
-			self.text_renderer.draw_scale(item.name, Vec3::new(0.1, 0.1, 0.0), 6.0);
+			self.text_renderer.draw_scale(item.name, Vec3::new(0.1, 0.1, 0.0),
+				Vec3::new(1.0, 0.0, 0.0), 6.0, false);
 		}
 
 		let connecting = self.connecting_node.is_some();
@@ -394,6 +431,11 @@ impl GameContext {
 
 			gl::End();
 		}
+
+		gl::Color3f(1.0, 1.0, 1.0);
+		gl::Begin(gl::POINTS);
+		gl::Vertex2f(6.0, 6.0);
+		gl::End();
 	}
 
 	unsafe fn setup_camera(&self) {

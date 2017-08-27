@@ -1,12 +1,32 @@
+mod basic; 
+mod io; 
 
-pub type WireValue = Option<i32>;
+pub use self::basic::*;
+pub use self::io::*;
+
+use std::borrow::BorrowMut;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum WireValue {
+	Null,
+	Int(i32),
+	Bool(bool),
+}
+
+impl WireValue {
+	pub fn is_null(&self) -> bool {
+		match_enum!(*self, WireValue::Null)
+	}
+}
 
 pub trait WireNode {
 	fn get_num_inputs(&self) -> u32 { 0 }
 	fn get_num_outputs(&self) -> u32 { 0 }
 
 	fn on_input_changed(&mut self, port: u32, value: WireValue) {}
-	fn get_output(&self, port: u32) -> WireValue { None }
+	fn on_frob(&mut self) {}
+
+	fn get_output(&self, port: u32) -> WireValue { WireValue::Null }
 
 	fn get_label(&self) -> String { String::new() }
 
@@ -59,6 +79,11 @@ impl WireContext {
 			.map(|n| &*self.nodes[n].1)
 	}
 
+	pub fn get_node_mut(&mut self, node_id: u32) -> Option<&mut (WireNode + 'static)> {
+		self.nodes.binary_search_by_key(&node_id, |a| a.0).ok()
+			.map(move |n| self.nodes[n].1.borrow_mut())
+	}
+
 	pub fn add_connection(&mut self, from_node: (u32, u32), to_node: (u32, u32)) {
 		let input = self.nodes.binary_search_by_key(&from_node.0, |a| a.0);
 		let output = self.nodes.binary_search_by_key(&to_node.0, |a| a.0);
@@ -88,7 +113,7 @@ impl WireContext {
 			input_port: from_node.1,
 			output_port: to_node.1,
 
-			value: None,
+			value: WireValue::Null,
 			changed: false,
 			invalid: false,
 		});
@@ -119,8 +144,8 @@ impl WireContext {
 		for connection in self.connections.iter_mut() {
 			let input = self.nodes.binary_search_by_key(&connection.input_node, |a| a.0);
 			if input.is_err() {
-				if connection.value.is_some() {
-					connection.value = None;
+				if !connection.value.is_null() {
+					connection.value = WireValue::Null;
 					connection.changed = true;
 					connection.invalid = true;
 				}
@@ -136,128 +161,5 @@ impl WireContext {
 				connection.changed = true;
 			}
 		}
-	}
-}
-
-pub struct ConstantNode { pub value: i32 }
-pub struct OutputNode { pub name: String, value: WireValue }
-pub struct CounterNode { count: i32 }
-pub struct BufferNode { value: WireValue }
-
-pub struct AddNode { pub inputs: [i32; 2], value: i32 }
-
-impl WireNode for ConstantNode {
-	fn get_num_outputs(&self) -> u32 { 1 }
-
-	fn get_output(&self, port: u32) -> WireValue {
-		if port == 0 {
-			Some(self.value)
-		} else {
-			None
-		}
-	}
-
-	fn get_label(&self) -> String {
-		"Constant".to_string()
-	}
-}
-
-impl OutputNode {
-	pub fn new(name: &str) -> Self {
-		OutputNode {
-			name: name.to_string(),
-			value: None
-		}
-	}
-}
-
-impl WireNode for OutputNode {
-	fn get_num_inputs(&self) -> u32 { 1 }
-
-	fn on_input_changed(&mut self, port: u32, value: WireValue) {
-		if port != 0 { return }
-
-		self.value = value;
-		println!("'{}': {:?}", self.name, value);
-	}
-
-	fn get_label(&self) -> String {
-		format!("{}: {:?}", self.name, self.value)
-	}
-}
-
-impl CounterNode {
-	pub fn new() -> Self {
-		CounterNode { count: 0 }
-	}
-}
-
-impl WireNode for CounterNode {
-	fn get_num_outputs(&self) -> u32 { 1 }
-
-	fn update(&mut self) {
-		self.count += 1;
-	}
-
-	fn get_output(&self, port: u32) -> WireValue {
-		if port != 0 { return None }
-		Some(self.count)
-	}
-
-	fn get_label(&self) -> String {
-		format!("{}", self.count)
-	}
-}
-
-impl BufferNode {
-	pub fn new() -> Self { BufferNode{ value: None } }
-}
-
-impl WireNode for BufferNode {
-	fn get_num_inputs(&self) -> u32 { 1 }
-	fn get_num_outputs(&self) -> u32 { 1 }
-
-	fn on_input_changed(&mut self, port: u32, value: WireValue) {
-		self.value = value;
-	}
-
-	fn get_output(&self, port: u32) -> WireValue {
-		self.value
-	}
-}
-
-impl AddNode {
-	pub fn new() -> Self {
-		AddNode {
-			inputs: [0; 2],
-			value: 0,
-		}
-	}
-}
-
-impl WireNode for AddNode {
-	fn get_num_inputs(&self) -> u32 { self.inputs.len() as u32 }
-	fn get_num_outputs(&self) -> u32 { 1 }
-
-	fn on_input_changed(&mut self, port: u32, value: WireValue) {
-		if port >= self.get_num_inputs() { return }
-
-		self.inputs[port as usize] = value.unwrap_or(0);
-	}
-
-	fn update(&mut self) {
-		self.value = self.inputs.iter().sum();
-	}
-
-	fn get_output(&self, port: u32) -> WireValue {
-		if port == 0 {
-			Some(self.value)
-		} else {
-			None
-		}
-	}
-
-	fn get_label(&self) -> String {
-		format!("{} + {}", self.inputs[0], self.inputs[1])
 	}
 }

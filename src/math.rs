@@ -41,6 +41,7 @@ impl Vec3 {
 	pub fn new(x: f32, y: f32, z: f32) -> Vec3 { Vec3{x, y, z} }
 	pub fn splat(x: f32) -> Vec3 { Vec3::new(x, x, x) }
 	pub fn zero() -> Vec3 { Vec3::splat(0.0) }
+	pub fn from_y_angle(th: f32) -> Vec3 { Vec3::new(th.cos(), 0.0, th.sin()) }
 
 	pub fn to_tuple(&self) -> (f32,f32,f32) { (self.x, self.y, self.z) }
 	pub fn extend(&self, w: f32) -> Vec4 { Vec4::new(self.x, self.y, self.z, w) }
@@ -224,6 +225,13 @@ impl Mul<Vec3> for Vec3 {
 	type Output = Vec3;
 	fn mul(self, o: Vec3) -> Vec3 {
 		Vec3::new(self.x * o.x, self.y * o.y, self.z * o.z)
+	}
+}
+
+impl Div<f32> for Vec3 {
+	type Output = Vec3;
+	fn div(self, o: f32) -> Vec3 {
+		Vec3::new(self.x / o, self.y / o, self.z / o)
 	}
 }
 

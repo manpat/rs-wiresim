@@ -4,6 +4,16 @@
 extern crate sdl2;
 extern crate lodepng;
 
+#[macro_export]
+macro_rules! match_enum {
+	($v:expr, $p:pat) => {
+		match $v {
+			$p => true,
+			_ => false,
+		}
+	}
+}
+
 mod gl {
 	include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -62,12 +72,12 @@ fn main() {
 				Event::KeyDown { keycode: Some(Keycode::Escape), .. } |
 				Event::Quit { .. } => break 'main,
 
-				Event::KeyDown { keycode: Some(Keycode::C), .. } => {
+				Event::KeyDown { keycode: Some(Keycode::C), repeat: false, .. } => {
 					capture = !capture;
 					sdl_ctx.mouse().warp_mouse_in_window(&window, 400, 300);
 				}
 
-				Event::KeyDown { keycode: Some(key), .. } => {
+				Event::KeyDown { keycode: Some(key), repeat: false, .. } => {
 					let key = match key {
 						Keycode::W => Key::Forward,
 						Keycode::A => Key::Left,
@@ -83,6 +93,11 @@ fn main() {
 							game_ctx.next_item();
 							break;
 						},
+
+						Keycode::F => {
+							game_ctx.on_frob();
+							break;
+						}
 
 						_ => break
 					};
